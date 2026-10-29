@@ -41,6 +41,7 @@ MIN_OK_CHARS = int(os.environ.get("MIN_OK_CHARS", "600"))
 MAX_LINKEDIN_FETCHES = int(os.environ.get("MAX_LINKEDIN_FETCHES", "40") or "40")
 DRY_RUN = os.environ.get("DRY_RUN", "false").strip().lower() == "true"
 DESC_MAX = 1900
+NOTION_MIN_INTERVAL = float(os.environ.get("NOTION_MIN_INTERVAL", "0.4"))  # ≈2,5 req/seg
 
 NOTION_VERSION = "2022-06-28"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
@@ -60,6 +61,38 @@ def notion_headers() -> dict:
         "Notion-Version": NOTION_VERSION,
         "Content-Type": "application/json",
     }
+
+
+_last_notion_call = 0.0
+
+
+def notion_request(method: str, url: str, **kwargs):
+    """Llama a la API de Notion respetando su límite (~3 requests/seg).
+
+    - Espera al menos NOTION_MIN_INTERVAL segundos entre llamadas.
+    - Si Notion responde 429 (demasiados requests) o 5xx, espera lo que indique
+      Retry-After (o 2, 4, 8… s) y reintenta hasta 6 veces.
+    """
+    global _last_notion_call
+    for attempt in range(6):
+        wait = NOTION_MIN_INTERVAL - (time.monotonic() - _last_notion_call)
+        if wait > 0:
+            time.sleep(wait)
+        _last_notion_call = time.monotonic()
+        r = session.request(method, url, headers=notion_headers(), timeout=60, **kwargs)
+        if r.status_code == 429 or r.status_code >= 500:
+            retry_after = r.headers.get("Retry-After") if hasattr(r, "headers") else None
+            try:
+                delay = float(retry_after) if retry_after else 2 ** (attempt + 1)
+            except ValueError:
+                delay = 2 ** (attempt + 1)
+            print(f"[info] Notion HTTP {r.status_code}; reintento en {delay:.0f}s")
+            time.sleep(delay)
+            continue
+        r.raise_for_status()
+        return r
+    r.raise_for_status()
+    return r
 
 
 def plain(rich: list) -> str:
@@ -82,12 +115,9 @@ def notion_candidates() -> list[dict]:
     while True:
         if cursor:
             body["start_cursor"] = cursor
-        r = session.post(
-            f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}/query",
-            headers=notion_headers(), json=body, timeout=60,
-        )
-        r.raise_for_status()
-        data = r.json()
+        data = notion_request(
+            "POST", f"https://api.notion.com/v1/databases/{NOTION_DATABASE_ID}/query", json=body,
+        ).json()
         for page in data["results"]:
             props = page["properties"]
             job_id = plain(props.get("Job ID", {}).get("rich_text"))
@@ -104,13 +134,10 @@ def notion_candidates() -> list[dict]:
 
 
 def notion_update(page_id: str, text: str) -> None:
-    r = session.patch(
-        f"https://api.notion.com/v1/pages/{page_id}",
-        headers=notion_headers(),
+    notion_request(
+        "PATCH", f"https://api.notion.com/v1/pages/{page_id}",
         json={"properties": {"Job Description": {"rich_text": [{"type": "text", "text": {"content": text}}]}}},
-        timeout=60,
     )
-    r.raise_for_status()
 
 
 # --------------------------------------------------------------- sources ----
