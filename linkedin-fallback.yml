@@ -1,0 +1,52 @@
+name: LinkedIn fallback (JobSpy)
+
+on:
+  schedule:
+    # 11:35 UTC = 08:35 en Chile (horario de verano) / 07:35 (invierno).
+    # Corre antes del run de Apify (09:00) y de la rutina de Claude (09:17).
+    - cron: "35 11 * * *"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: "Scrapear LinkedIn aunque Apify todavía tenga cuota"
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: linkedin-fallback
+  cancel-in-progress: false
+
+jobs:
+  scrape:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Check Apify quota and scrape if needed
+        env:
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          FORCE: ${{ inputs.force || 'false' }}
+          MIN_REMAINING_USD: "0.25"
+        run: python scraper/fallback_scrape.py
+
+      - name: Commit results
+        if: always()
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A data
+          git commit -m "fallback data $(date -u +%Y-%m-%dT%H:%MZ)" || echo "Nothing to commit"
+          git push
