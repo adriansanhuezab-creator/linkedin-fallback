@@ -38,13 +38,17 @@ APIFY_TOKEN = os.environ.get("APIFY_TOKEN", "").strip()
 APIFY_TASK_ID = os.environ.get("APIFY_TASK_ID", "9DrHciQIojkUDRhod")
 DAYS_BACK = int(os.environ.get("DAYS_BACK", "3"))
 MIN_OK_CHARS = int(os.environ.get("MIN_OK_CHARS", "600"))
-MAX_LINKEDIN_FETCHES = int(os.environ.get("MAX_LINKEDIN_FETCHES", "40"))
+MAX_LINKEDIN_FETCHES = int(os.environ.get("MAX_LINKEDIN_FETCHES", "40") or "40")
 DRY_RUN = os.environ.get("DRY_RUN", "false").strip().lower() == "true"
 DESC_MAX = 1900
 
 NOTION_VERSION = "2022-06-28"
 DATA_DIR = Path(__file__).resolve().parent.parent / "data"
-MARKERS = ("[Resumen", "[Extracto")
+MARKERS = ("[resumen", "[extracto")  # se compara en minúsculas
+
+
+def is_marked(desc: str) -> bool:
+    return desc.strip().lower().startswith(MARKERS)
 
 session = requests.Session()
 
@@ -91,7 +95,7 @@ def notion_candidates() -> list[dict]:
             title = plain(props.get("Job Title", {}).get("title"))
             if not re.fullmatch(r"\d{6,}", job_id or ""):
                 continue  # solo IDs numéricos de LinkedIn
-            if len(desc) >= MIN_OK_CHARS and not desc.startswith(MARKERS):
+            if len(desc) >= MIN_OK_CHARS and not is_marked(desc):
                 continue
             rows.append({"page_id": page["id"], "job_id": job_id, "title": title, "desc": desc})
         if not data.get("has_more"):
@@ -122,7 +126,7 @@ def from_repo() -> dict[str, str]:
     return out
 
 
-def from_apify(limit_runs: int = 4) -> dict[str, str]:
+def from_apify(limit_runs: int = max(4, min(DAYS_BACK + 2, 30))) -> dict[str, str]:
     if not APIFY_TOKEN:
         return {}
     out = {}
@@ -153,12 +157,16 @@ def from_apify(limit_runs: int = 4) -> dict[str, str]:
 def from_linkedin(job_id: str) -> str:
     from bs4 import BeautifulSoup  # viene con python-jobspy
 
-    r = session.get(
-        f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}",
-        headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
-                               "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"},
-        timeout=30,
-    )
+    try:
+        r = session.get(
+            f"https://www.linkedin.com/jobs-guest/jobs/api/jobPosting/{job_id}",
+            headers={"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+                                   "(KHTML, like Gecko) Chrome/124.0 Safari/537.36"},
+            timeout=30,
+        )
+    except Exception as exc:  # noqa: BLE001
+        print(f"[warn] LinkedIn {job_id}: {exc}")
+        return ""
     if r.status_code != 200:
         print(f"[warn] LinkedIn {job_id}: HTTP {r.status_code}")
         return ""
@@ -169,7 +177,13 @@ def from_linkedin(job_id: str) -> str:
 def tidy(text: str) -> str:
     text = re.sub(r"[ \t]+", " ", text or "")
     text = re.sub(r"\n{3,}", "\n\n", text).strip()
-    return text[:DESC_MAX]
+    if len(text) <= DESC_MAX:
+        return text
+    cut = text[: DESC_MAX - 1]
+    space = max(cut.rfind(" "), cut.rfind("\n"))
+    if space > DESC_MAX - 200:  # corta en la última palabra completa
+        cut = cut[:space]
+    return cut.rstrip(" ,;:-•") + "…"
 
 
 # ------------------------------------------------------------------ main ----
@@ -197,7 +211,7 @@ def main() -> int:
             text, source = from_linkedin(jid), "linkedin"
             time.sleep(2)
         text = tidy(text)
-        if not text or (len(text) <= len(row["desc"]) and not row["desc"].startswith(MARKERS)):
+        if not text or (len(text) <= len(row["desc"]) and not is_marked(row["desc"])):
             missing.append(jid)
             continue
         if not DRY_RUN:
