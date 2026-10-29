@@ -10,6 +10,9 @@ on:
       days_back:
         description: "Revisar filas con Date Found de los últimos N días"
         default: "3"
+      max_linkedin:
+        description: "Máximo de avisos a leer directo desde LinkedIn (sube a 150 para un relleno grande)"
+        default: "40"
       dry_run:
         description: "Solo mostrar qué cambiaría, sin escribir en Notion"
         type: boolean
@@ -22,7 +25,7 @@ concurrency:
 jobs:
   fill:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v5
 
@@ -42,5 +45,6 @@ jobs:
           NOTION_DATABASE_ID: "9b8e56cf-df7d-4de2-9a68-469d4f7a787d"
           APIFY_TASK_ID: "9DrHciQIojkUDRhod"
           DAYS_BACK: ${{ inputs.days_back || '3' }}
+          MAX_LINKEDIN_FETCHES: ${{ inputs.max_linkedin || '40' }}
           DRY_RUN: ${{ inputs.dry_run || 'false' }}
         run: python scraper/fill_descriptions.py
