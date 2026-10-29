@@ -1,0 +1,46 @@
+name: Fill job descriptions (Notion)
+
+on:
+  schedule:
+    # Después de la rutina de Claude (09:17 Chile). Dos pasadas por si la rutina se atrasa.
+    - cron: "55 12 * * *"
+    - cron: "55 14 * * *"
+  workflow_dispatch:
+    inputs:
+      days_back:
+        description: "Revisar filas con Date Found de los últimos N días"
+        default: "3"
+      dry_run:
+        description: "Solo mostrar qué cambiaría, sin escribir en Notion"
+        type: boolean
+        default: false
+
+concurrency:
+  group: fill-descriptions
+  cancel-in-progress: false
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+          cache: pip
+          cache-dependency-path: scraper/requirements.txt
+
+      - name: Install dependencies
+        run: pip install -r scraper/requirements.txt
+
+      - name: Fill short Job Descriptions in Notion
+        env:
+          NOTION_TOKEN: ${{ secrets.NOTION_TOKEN }}
+          APIFY_TOKEN: ${{ secrets.APIFY_TOKEN }}
+          NOTION_DATABASE_ID: "9b8e56cf-df7d-4de2-9a68-469d4f7a787d"
+          APIFY_TASK_ID: "9DrHciQIojkUDRhod"
+          DAYS_BACK: ${{ inputs.days_back || '3' }}
+          DRY_RUN: ${{ inputs.dry_run || 'false' }}
+        run: python scraper/fill_descriptions.py
