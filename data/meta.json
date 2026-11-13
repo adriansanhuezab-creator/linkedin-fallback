@@ -1,18 +1,18 @@
 {
  "source": "jobspy-linkedin",
- "generated_at": "2026-11-12T19:05:44Z",
+ "generated_at": "2026-11-13T18:42:48Z",
  "search_term": "BI Analyst OR Financial Analyst OR Data Consultant OR Automation Analyst OR Analytics Engineer",
  "location": "Chile",
  "hours_old": 26,
  "apify": {
-  "monthly_usage_usd": 2.213,
+  "monthly_usage_usd": 2.4136,
   "max_monthly_usage_usd": 5.0,
-  "remaining_usd": 2.787,
+  "remaining_usd": 2.5864,
   "cycle_start": "2026-10-30T00:00:00.000Z",
   "cycle_end": "2026-11-29T23:59:59.999Z"
  },
  "status": "skipped",
- "reason": "apify has quota (remaining USD 2.787)",
+ "reason": "apify has quota (remaining USD 2.5864)",
  "item_count": 0,
  "page_size": 10,
  "pages": []
